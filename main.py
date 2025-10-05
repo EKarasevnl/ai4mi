@@ -52,6 +52,11 @@ from utils import (Dcm,
 
 from losses import (CrossEntropy)
 
+
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
+
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
 # Avoids the classes with C (often used for the number of Channel)
@@ -59,23 +64,38 @@ datasets_params["TOY2"] = {'K': 2, 'net': shallowCNN, 'B': 2, 'kernels': 8, 'fac
 datasets_params["SEGTHOR"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
 datasets_params["SEGTHOR_CLEAN"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
 
+augmentations = A.Compose([
+    A.ShiftScaleRotate(shift_limit = 0.05,rotate_limit = 10, p = 0.5, fit_output = False),
+    A.GaussNoise(p=0.1),
+    A.RandomBrightnessContrast(p=0.25),
+], is_check_shapes = False)
+
+
 def img_transform(img):
         img = img.convert('L')
         img = np.array(img)[np.newaxis, ...]
-        img = img / 255  # max <= 1
-        img = torch.tensor(img, dtype=torch.float32)
+
+        # augmented = augmentations(image = img, mask = img)
+        # img = augmented['image']
+
+        # img = img / 255  # max <= 1
+        # img = torch.tensor(img, dtype=torch.float32)
         return img
 
-def gt_transform(K, img):
+def gt_transform(img):
         img = np.array(img)[...]
         # The idea is that the classes are mapped to {0, 255} for binary cases
         # {0, 85, 170, 255} for 4 classes
         # {0, 51, 102, 153, 204, 255} for 6 classes
         # Very sketchy but that works here and that simplifies visualization
-        img = img / (255 / (K - 1)) if K != 5 else img / 63  # max <= 1
-        img = torch.tensor(img, dtype=torch.int64)[None, ...]  # Add one dimension to simulate batch
-        img = class2one_hot(img, K=K)
-        return img[0]
+
+        # augmented = augmentations(image = img, mask = img)
+        # img = augmented['mask']
+        return img
+        # img = img / (255 / (K - 1)) if K != 5 else img / 63  # max <= 1
+        # img = torch.tensor(img, dtype=torch.int64)[None, ...]  # Add one dimension to simulate batch
+        # img = class2one_hot(img, K=K)
+        # return img[0]
 
 def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     # Networks and scheduler
@@ -101,9 +121,11 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
 
     train_set = SliceDataset('train',
                              root_dir,
+                             K,
                              img_transform=img_transform,
-                             gt_transform= partial(gt_transform, K),
-                             debug=args.debug)
+                             gt_transform= gt_transform,
+                             debug=args.debug,
+                             augmentations = augmentations)
     train_loader = DataLoader(train_set,
                               batch_size=B,
                               num_workers=5,
@@ -111,8 +133,9 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
 
     val_set = SliceDataset('val',
                            root_dir,
+                           K,
                            img_transform=img_transform,
-                           gt_transform=partial(gt_transform, K),
+                           gt_transform=gt_transform,
                            debug=args.debug)
     val_loader = DataLoader(val_set,
                             batch_size=B,
