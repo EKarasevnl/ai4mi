@@ -63,13 +63,12 @@ class DiceLoss():
         assert pred_softmax.shape == weak_target.shape
         assert simplex(pred_softmax)
         assert sset(weak_target, [0, 1])
+        assert len(self.idk) > 0
 
         weak_target = weak_target.float()
 
-        classes = self.idk if self.idk is not None else list(range(pred_softmax.shape[1]))
         dice_losses = []
-
-        for c in classes:
+        for c in self.idk:
             p = pred_softmax[:, c, ...]
             t = weak_target[:, c, ...]
             # elementwise multiply pred and target, sum over batch and dims
