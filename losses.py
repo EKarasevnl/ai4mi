@@ -54,27 +54,28 @@ class PartialCrossEntropy(CrossEntropy):
 
 
 class DiceLoss():
-    def __init__(self, smooth=1e-6, idk=None):
+    def __init__(self, smooth=1e-10, idk=None):
         self.smooth = smooth
         self.idk = idk
-        print(f"Initialized {self.__class__.__name__} with {kwargs}")
+        print(f"Initialized {self.__class__.__name__} with idk={idk}")
 
     def __call__(self, pred_softmax, weak_target):
         assert pred_softmax.shape == weak_target.shape
         assert simplex(pred_softmax)
         assert sset(weak_target, [0, 1])
 
-        if self.idk is not None:
-            pred_softmax = pred_softmax[:, self.idk, ...]
-            weak_target = weak_target[:, self.idk, ...].float()
+        weak_target = weak_target.float()
 
-        # weak_target = weak_target.float()
-        
-        intersect = einsum("bkwh,bkwh->", pred_softmax, weak_target)
-        union = pred_softmax.sum() + weak_target.sum()
-        dice_score = (2 * intersect + self.smooth) / (union + self.smooth)
-        dice_loss = 1 - dice_score
+        classes = self.idk if self.idk is not None else list(range(pred_softmax.shape[1]))
+        dice_losses = []
 
-        return dice_loss
+        for c in classes:
+            p = pred_softmax[:, c, ...]
+            t = weak_target[:, c, ...]
+            # elementwise multiply pred and target, sum over batch and dims
+            intersect = einsum("b... , b... ->", p, t)
+            union = p.sum() + t.sum()
+            dice_score = (2 * intersect + self.smooth) / (union + self.smooth)
+            dice_losses.append(1 - dice_score)
 
-
+        return sum(dice_losses) / len(dice_losses)
