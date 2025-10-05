@@ -22,9 +22,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Union
 
+import torch
 from torch import Tensor
 from PIL import Image
 from torch.utils.data import Dataset
@@ -51,18 +53,47 @@ def make_dataset(root, subset) -> list[tuple[Path, Path | None]]:
 
 class SliceDataset(Dataset):
     def __init__(self, subset, root_dir, img_transform=None,
-                 gt_transform=None, augment=False, equalize=False, debug=False):
+                 gt_transform=None, augment=False, equalize=False, debug=False,
+                 context_slices: int = 0):
+        assert context_slices >= 0, context_slices
+
         self.root_dir: str = root_dir
         self.img_transform: Callable = img_transform
         self.gt_transform: Callable = gt_transform
         self.augmentation: bool = augment
         self.equalize: bool = equalize
+        self.context_slices: int = context_slices
 
         self.test_mode: bool = subset == 'test'
 
         self.files = make_dataset(root_dir, subset)
         if debug:
             self.files = self.files[:10]
+
+        if not self.files:
+            msg = (f"No input slices found under '{Path(root_dir) / subset / 'img'}'. "
+                   "Make sure the dataset is downloaded/extracted and matches the expected layout")
+            raise FileNotFoundError(msg)
+
+        self._neighbors: dict[int, list[int]] | None = None
+        if self.context_slices:
+            by_patient: dict[str, list[int]] = defaultdict(list)
+            for idx, (img_path, _) in enumerate(self.files):
+                stem = img_path.stem
+                patient_id = stem.rsplit('_', 1)[0]
+                by_patient[patient_id].append(idx)
+
+            neighbors: dict[int, list[int]] = {}
+            radius: int = self.context_slices
+            for indices in by_patient.values():
+                count = len(indices)
+                for pos, idx in enumerate(indices):
+                    window: list[int] = []
+                    for offset in range(-radius, radius + 1):
+                        neighbor_pos = min(max(pos + offset, 0), count - 1)
+                        window.append(indices[neighbor_pos])
+                    neighbors[idx] = window
+            self._neighbors = neighbors
 
         print(f">> Created {subset} dataset with {len(self)} images...")
 
@@ -72,13 +103,29 @@ class SliceDataset(Dataset):
     def __getitem__(self, index) -> dict[str, Union[Tensor, int, str]]:
         img_path, gt_path = self.files[index]
 
-        img: Tensor = self.img_transform(Image.open(img_path))
+        img: Tensor
+        if self.context_slices and self._neighbors is not None:
+            slice_indices = self._neighbors[index]
+            slices: list[Tensor] = []
+            for neighbor_idx in slice_indices:
+                neighbor_img_path, _ = self.files[neighbor_idx]
+                with Image.open(neighbor_img_path) as pil_img:
+                    slices.append(self.img_transform(pil_img))
+            if slices:
+                img = torch.cat(slices, dim=0)
+            else:
+                with Image.open(img_path) as pil_img:
+                    img = self.img_transform(pil_img)
+        else:
+            with Image.open(img_path) as pil_img:
+                img = self.img_transform(pil_img)
 
         data_dict = {"images": img,
                      "stems": img_path.stem}
 
         if not self.test_mode:
-            gt: Tensor = self.gt_transform(Image.open(gt_path))
+            with Image.open(gt_path) as pil_img:
+                gt: Tensor = self.gt_transform(pil_img)
 
             _, W, H = img.shape
             K, _, _ = gt.shape

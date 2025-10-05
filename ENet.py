@@ -187,6 +187,12 @@ class ENet(nn.Module):
                 self.conv0 = nn.Conv2d(in_dim, K - 1, kernel_size=3, stride=2, padding=1)
                 self.maxpool0 = nn.MaxPool2d(2, return_indices=False, ceil_mode=False)
 
+                initial_channels: int = (K - 1) + in_dim
+                if initial_channels != K:
+                        self.initial_projection = conv_block(initial_channels, K, kernel_size=1)
+                else:
+                        self.initial_projection = nn.Identity()
+
                 # Downsampling half
                 self.bottleneck1_0 = BottleNeckDownSampling(K, K * 4, F)
                 self.bottleneck1_1 = nn.Sequential(BottleNeck(K * 4, K * 4, F),
@@ -231,7 +237,7 @@ class ENet(nn.Module):
                 # Initial operations
                 conv_0 = self.conv0(input)
                 maxpool_0 = self.maxpool0(input)
-                outputInitial = torch.cat((conv_0, maxpool_0), dim=1)
+                outputInitial = self.initial_projection(torch.cat((conv_0, maxpool_0), dim=1))
 
                 # Downsampling half
                 bn1_0, indices_1 = self.bottleneck1_0(outputInitial)

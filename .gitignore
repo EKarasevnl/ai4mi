@@ -214,3 +214,4 @@ ai4mi/
 __pycache__/
 
 projects
+.DS_Store

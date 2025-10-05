@@ -34,7 +34,6 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from torch import nn, Tensor
-from torchvision import transforms
 from torch.utils.data import DataLoader
 
 from functools import partial 
@@ -55,9 +54,9 @@ from losses import (CrossEntropy)
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
 # Avoids the classes with C (often used for the number of Channel)
-datasets_params["TOY2"] = {'K': 2, 'net': shallowCNN, 'B': 2, 'kernels': 8, 'factor': 2}
-datasets_params["SEGTHOR"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
-datasets_params["SEGTHOR_CLEAN"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
+datasets_params["TOY2"] = {'K': 2, 'net': shallowCNN, 'B': 2, 'kernels': 8, 'factor': 2, 'context': 0}
+datasets_params["SEGTHOR"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2, 'context': 0}
+datasets_params["SEGTHOR_CLEAN"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2, 'context': 0}
 
 def img_transform(img):
         img = img.convert('L')
@@ -83,18 +82,21 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     device = torch.device("cuda") if gpu else torch.device("cpu")
     print(f">> Picked {device} to run experiments")
 
-    K: int = datasets_params[args.dataset]['K']
-    kernels: int = datasets_params[args.dataset]['kernels'] if 'kernels' in datasets_params[args.dataset] else 8
-    factor: int = datasets_params[args.dataset]['factor'] if 'factor' in datasets_params[args.dataset] else 2
-    net = datasets_params[args.dataset]['net'](1, K, kernels=kernels, factor=factor)
+    params = datasets_params[args.dataset]
+    K: int = params['K']
+    kernels: int = params['kernels'] if 'kernels' in params else 8
+    factor: int = params['factor'] if 'factor' in params else 2
+    context_slices: int = args.context if args.context is not None else params.get('context', 0)
+    in_channels: int = 2 * context_slices + 1
+    net = params['net'](in_channels, K, kernels=kernels, factor=factor)
     net.init_weights()
     net.to(device)
 
-    lr = 0.0005
+    lr = args.lr
     optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
 
     # Dataset part
-    B: int = datasets_params[args.dataset]['B']
+    B: int = params['B']
     root_dir = Path("data") / args.dataset
 
 
@@ -103,7 +105,8 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
                              root_dir,
                              img_transform=img_transform,
                              gt_transform= partial(gt_transform, K),
-                             debug=args.debug)
+                             debug=args.debug,
+                             context_slices=context_slices)
     train_loader = DataLoader(train_set,
                               batch_size=B,
                               num_workers=5,
@@ -113,7 +116,8 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
                            root_dir,
                            img_transform=img_transform,
                            gt_transform=partial(gt_transform, K),
-                           debug=args.debug)
+                           debug=args.debug,
+                           context_slices=context_slices)
     val_loader = DataLoader(val_set,
                             batch_size=B,
                             num_workers=5,
@@ -127,6 +131,16 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
 def runTraining(args):
     print(f">>> Setting up to train on {args.dataset} with {args.mode}")
     net, optimizer, device, train_loader, val_loader, K = setup(args)
+
+    base_lr: float = args.lr
+    warmup_epochs: int = max(args.warmup_epochs, 0)
+    warmup_steps: int = warmup_epochs * len(train_loader) if warmup_epochs else 0
+    global_step: int = 0
+
+    if warmup_steps:
+        print(f">> Using base LR {base_lr:.3e} with {warmup_epochs} warmup epoch(s) (~{warmup_steps} steps)")
+    else:
+        print(f">> Using base LR {base_lr:.3e} with no warmup")
 
     if args.mode == "full":
         loss_fn = CrossEntropy(idk=list(range(K)))  # Supervise both background and foreground
@@ -170,6 +184,14 @@ def runTraining(args):
                     img = data['images'].to(device)
                     gt = data['gts'].to(device)
 
+                    if opt is not None and warmup_steps:
+                        if global_step < warmup_steps:
+                            warmup_lr = base_lr * float(global_step + 1) / warmup_steps
+                        else:
+                            warmup_lr = base_lr
+                        for param_group in opt.param_groups:
+                            param_group['lr'] = warmup_lr
+
                     if opt:  # So only for training
                         opt.zero_grad()
 
@@ -190,6 +212,7 @@ def runTraining(args):
                     if opt:  # Only for training
                         loss.backward()
                         opt.step()
+                        global_step += 1
 
                     if m == 'val':
                         with warnings.catch_warnings():
@@ -236,6 +259,10 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--epochs', default=20, type=int)
+    parser.add_argument('--lr', default=0.00025, type=float,
+                        help="Base learning rate for Adam (default: 2.5e-4)")
+    parser.add_argument('--warmup-epochs', default=0, type=int,
+                        help="Number of initial epochs for linear LR warmup")
     parser.add_argument('--dataset', default='TOY2', choices=datasets_params.keys())
     parser.add_argument('--mode', default='full', choices=['partial', 'full'])
     parser.add_argument('--dest', type=Path, required=True,
@@ -245,6 +272,8 @@ def main():
     parser.add_argument('--debug', action='store_true',
                         help="Keep only a fraction (10 samples) of the datasets, "
                              "to test the logics around epochs and logging easily.")
+    parser.add_argument('--context', type=int, default=None,
+                        help="Number of neighboring slices to add on each side (0 keeps pure 2D).")
 
     args = parser.parse_args()
 
