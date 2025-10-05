@@ -51,3 +51,30 @@ class CrossEntropy():
 class PartialCrossEntropy(CrossEntropy):
     def __init__(self, **kwargs):
         super().__init__(idk=[1], **kwargs)
+
+
+class DiceLoss():
+    def __init__(self, smooth=1e-6, idk=None):
+        self.smooth = smooth
+        self.idk = idk
+        print(f"Initialized {self.__class__.__name__} with {kwargs}")
+
+    def __call__(self, pred_softmax, weak_target):
+        assert pred_softmax.shape == weak_target.shape
+        assert simplex(pred_softmax)
+        assert sset(weak_target, [0, 1])
+
+        if self.idk is not None:
+            pred_softmax = pred_softmax[:, self.idk, ...]
+            weak_target = weak_target[:, self.idk, ...].float()
+
+        # weak_target = weak_target.float()
+        
+        intersect = einsum("bkwh,bkwh->", pred_softmax, weak_target)
+        union = pred_softmax.sum() + weak_target.sum()
+        dice_score = (2 * intersect + self.smooth) / (union + self.smooth)
+        dice_loss = 1 - dice_score
+
+        return dice_loss
+
+

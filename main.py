@@ -51,6 +51,7 @@ from utils import (Dcm,
                    save_images)
 
 from losses import (CrossEntropy)
+from losses import (DiceLoss)
 
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
@@ -132,6 +133,8 @@ def runTraining(args):
         loss_fn = CrossEntropy(idk=list(range(K)))  # Supervise both background and foreground
     elif args.mode in ["partial"] and args.dataset == 'SEGTHOR':
         loss_fn = CrossEntropy(idk=[0, 1, 3, 4])  # Do not supervise the heart (class 2)
+    elif args.mode in ["dice"] and args.dataset == 'SEGTHOR_CLEAN':
+        loss_fn = DiceLoss(idk=[0, 1, 2, 3, 4])  # Supervise all classes with Dice loss
     else:
         raise ValueError(args.mode, args.dataset)
 
@@ -237,7 +240,7 @@ def main():
 
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--dataset', default='TOY2', choices=datasets_params.keys())
-    parser.add_argument('--mode', default='full', choices=['partial', 'full'])
+    parser.add_argument('--mode', default='full', choices=['partial', 'full', 'dice'])
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
 
