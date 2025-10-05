@@ -91,8 +91,15 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     ct_path: Path = (id_path / f"{id_}.nii.gz") if not test_mode else (source_path / "test" / f"{id_}.nii.gz")
     nib_obj_pre = nib.load(str(ct_path))
 
+    data_folder = "train" if not test_mode else "test"
+    resampled_save_dir = source_path / f"{data_folder}_resampled" / id_
+    resampled_save_dir.mkdir(parents=True, exist_ok=True)
+
     #most of them are already (0.98, 0.98, 2.5)
     nib_obj = resample_to_output(nib_obj_pre, voxel_sizes=TAR_RES, order=1)
+
+    nib.save(nib_obj, resampled_save_dir / f"{id_}.nii.gz")
+
     ct: np.ndarray = np.asarray(nib_obj.dataobj)
     # dx, dy, dz = nib_obj.header.get_zooms()
     x, y, z = ct.shape
@@ -105,6 +112,7 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
         gt_path: Path = id_path / "GT.nii.gz"
         gt_nib_pre = nib.load(str(gt_path))
         gt_nib = resample_to_output(gt_nib_pre, voxel_sizes=TAR_RES, order=0)
+        nib.save(gt_nib, resampled_save_dir / "GT.nii.gz")
         # print(nib_obj.affine, gt_nib.affine)
         gt = np.asarray(gt_nib.dataobj)
         assert sanity_gt(gt, ct)
