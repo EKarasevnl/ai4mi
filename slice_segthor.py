@@ -33,12 +33,14 @@ from typing import Callable
 
 import numpy as np
 import nibabel as nib
+from nibabel.processing import resample_to_output
 from skimage.io import imsave
 from skimage.transform import resize
 
 from utils import map_, tqdm_
 
 
+TAR_RES = (0.98, 0.98, 2.5)
 def norm_arr(img: np.ndarray) -> np.ndarray:
     casted = img.astype(np.float32)
     shifted = casted - casted.min()
@@ -57,12 +59,14 @@ def sanity_ct(ct, x, y, z, dx, dy, dz) -> bool:
     assert ct.max() <= 31743, ct.max()
 
     assert 0.896 <= dx <= 1.37, dx  # Rounding error
-    assert dx == dy
+    assert dx == dy == 0.98
     assert 2 <= dz <= 3.7, dz
 
-    assert (x, y) == (512, 512)
+    #after resampling this may not be true
+    #assert (x, y) == (512, 512)
     assert x == y
-    assert 135 <= z <= 284, z
+    # This also may not be true
+    #assert 135 <= z <= 284, z
 
     return True
 
@@ -85,7 +89,10 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     id_path: Path = source_path / ("train" if not test_mode else "test") / id_
 
     ct_path: Path = (id_path / f"{id_}.nii.gz") if not test_mode else (source_path / "test" / f"{id_}.nii.gz")
-    nib_obj = nib.load(str(ct_path))
+    nib_obj_pre = nib.load(str(ct_path))
+
+    #most of them are already (0.98, 0.98, 2.5)
+    nib_obj = resample_to_output(nib_obj_pre, voxel_sizes=TAR_RES, order=1)
     ct: np.ndarray = np.asarray(nib_obj.dataobj)
     # dx, dy, dz = nib_obj.header.get_zooms()
     x, y, z = ct.shape
@@ -96,7 +103,8 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     gt: np.ndarray
     if not test_mode:
         gt_path: Path = id_path / "GT.nii.gz"
-        gt_nib = nib.load(str(gt_path))
+        gt_nib_pre = nib.load(str(gt_path))
+        gt_nib = resample_to_output(gt_nib_pre, voxel_sizes=TAR_RES, order=0)
         # print(nib_obj.affine, gt_nib.affine)
         gt = np.asarray(gt_nib.dataobj)
         assert sanity_gt(gt, ct)
