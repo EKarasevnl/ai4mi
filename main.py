@@ -55,6 +55,7 @@ from losses import (DiceLoss)
 from losses import (Hausdorff2DLoss)
 from losses import (DiceHDLoss)
 from losses import (DiceCELoss)
+from losses import (CombinedLoss)
 
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
@@ -144,6 +145,8 @@ def runTraining(args):
         loss_fn = DiceHDLoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
     elif args.mode in ["dicece"] and args.dataset == 'SEGTHOR_CLEAN':
         loss_fn = DiceCELoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
+    elif args.mode in ["comp"] and args.dataset == 'SEGTHOR_CLEAN':  # Just to compare with the paper
+        loss_fn = CombinedLoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
     else:
         raise ValueError(args.mode, args.dataset)
 
@@ -249,7 +252,7 @@ def main():
 
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--dataset', default='TOY2', choices=datasets_params.keys())
-    parser.add_argument('--mode', default='full', choices=['partial', 'full', 'dice', 'hd', 'dicehd', 'dicece'])
+    parser.add_argument('--mode', default='full', choices=['partial', 'full', 'dice', 'hd', 'dicehd', 'dicece', 'comp'])
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
 

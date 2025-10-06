@@ -135,3 +135,17 @@ class DiceCELoss:
         dice = self.dice_loss(pred_softmax, target)
         ce = self.ce_loss(pred_softmax, target)
         return self.alpha * dice + (1 - self.alpha) * ce
+    
+
+class CombinedLoss:
+    def __init__(self, idk=None, alpha=1/3):
+        self.dice_loss = DiceLoss(idk=idk)
+        self.hd_loss = Hausdorff2DLoss(idk=idk)
+        self.ce_loss = CrossEntropy(idk=idk)
+        self.alpha = alpha
+
+    def __call__(self, pred_softmax, target):
+        dice = self.dice_loss(pred_softmax, target)
+        hd = self.hd_loss(pred_softmax, target)
+        ce = self.ce_loss(pred_softmax, target)
+        return self.alpha * dice + self.alpha * hd + self.alpha * ce
