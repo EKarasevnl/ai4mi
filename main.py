@@ -53,6 +53,7 @@ from utils import (Dcm,
 from losses import (CrossEntropy)
 from losses import (DiceLoss)
 from losses import (Hausdorff2DLoss)
+from losses import (CombinedLoss)
 
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
@@ -138,6 +139,8 @@ def runTraining(args):
         loss_fn = DiceLoss(idk=[0, 1, 2, 3, 4])
     elif args.mode in ["hd"] and args.dataset == 'SEGTHOR_CLEAN':
         loss_fn = Hausdorff2DLoss(idk=[0, 1, 2, 3, 4])
+    elif args.mode in ["comp"] and args.dataset == 'SEGTHOR_CLEAN':
+        loss_fn = CombinedLoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
     else:
         raise ValueError(args.mode, args.dataset)
 
@@ -243,7 +246,7 @@ def main():
 
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--dataset', default='TOY2', choices=datasets_params.keys())
-    parser.add_argument('--mode', default='full', choices=['partial', 'full', 'dice', 'hd'])
+    parser.add_argument('--mode', default='full', choices=['partial', 'full', 'dice', 'hd', 'comp'])
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
 
