@@ -24,7 +24,8 @@
 
 
 from torch import einsum
-
+import torch
+import torch.nn.functional as F
 from utils import simplex, sset
 
 
@@ -78,3 +79,35 @@ class DiceLoss():
             dice_losses.append(1 - dice_score)
 
         return sum(dice_losses) / len(dice_losses)
+
+
+class Hausdorff2DLoss:
+    def __init__(self, idk=None, beta=2.0, eps=1e-10):
+        self.idk = idk
+        self.beta = beta
+        self.eps = eps
+
+    def _soft_distance_map(self, mask):
+        dm = 1 - mask
+        for _ in range(4):
+            dm = F.max_pool2d(dm, kernel_size=3, stride=1, padding=1)
+        return dm
+
+    def __call__(self, pred_softmax, target):
+        _, C, _, _ = pred_softmax.shape
+        target = target.float()
+
+        classes = self.idk if self.idk is not None else list(range(C))
+        loss_per_class = []
+
+        for c in classes:
+            p = pred_softmax[:, c:c+1, ...]
+            t = target[:, c:c+1, ...]
+
+            dt_fore = self._soft_distance_map(t)
+            dt_back = self._soft_distance_map(1 - t)
+
+            hd = (p * dt_fore + (1 - p) * dt_back).mean()
+            loss_per_class.append(hd)
+
+        return torch.stack(loss_per_class).mean()
