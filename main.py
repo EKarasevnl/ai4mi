@@ -51,6 +51,8 @@ from utils import (Dcm,
                    save_images)
 
 from losses import (CrossEntropy)
+import torch_optimizer as optim
+
 
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
@@ -90,8 +92,11 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     net.init_weights()
     net.to(device)
 
-    lr = 0.0005
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
+
+    if args.optimizer == 'ranger':
+        optimizer = optim.Ranger(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
 
     # Dataset part
     B: int = datasets_params[args.dataset]['B']
@@ -241,6 +246,9 @@ def main():
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
 
+    parser.add_argument('--lr', default=0.0005, type=float)
+    parser.add_argument('--weight_decay', default=0.01, type=float)
+    parser.add_argument('--optimizer', default='adam', choices=['adam', 'ranger'])
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help="Keep only a fraction (10 samples) of the datasets, "
