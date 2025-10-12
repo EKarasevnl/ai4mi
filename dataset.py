@@ -30,6 +30,7 @@ from torch import Tensor
 from PIL import Image
 from torch.utils.data import Dataset
 from utils import (class2one_hot)
+import numpy as np
 
 def make_dataset(root, subset) -> list[tuple[Path, Path | None]]:
     assert subset in ['train', 'val', 'test']
@@ -66,7 +67,7 @@ class SliceDataset(Dataset):
         self.files = make_dataset(root_dir, subset)
         if debug:
             self.files = self.files[:10]
-        print(f">> {self.augmentations is None}, test mode: {self.test_mode}")
+        print(f">> Augmentations {self.augmentations is not None}, test mode: {self.test_mode}")
         print(f">> Created {subset} dataset with {len(self)} images...")
 
     def __len__(self):
@@ -83,9 +84,11 @@ class SliceDataset(Dataset):
 
 
             if self.augmentations is not None:
+                img = img.transpose((1, 2, 0))  # C, W, H -> W, H, C
                 augmented = self.augmentations(image = img, mask = gt)
                 img = augmented['image']
                 gt = augmented['mask']
+                img = img.transpose((2, 0, 1))  # W, H, C -> C, W, H
 
             gt = gt / (255 / (self.K - 1)) if self.K != 5 else gt / 63  # max <= 1
             gt = torch.tensor(gt, dtype=torch.int64)[None, ...]  # Add one dimension to simulate batch
