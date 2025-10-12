@@ -42,6 +42,7 @@ from functools import partial
 from dataset import SliceDataset
 from ShallowNet import shallowCNN
 from ENet import ENet
+from vit_unet import ViTSegmenter
 from utils import (Dcm,
                    class2one_hot,
                    probs2one_hot,
@@ -52,12 +53,38 @@ from utils import (Dcm,
 
 from losses import (CrossEntropy)
 
+architectures: dict[str, type[nn.Module]] = {
+    "shallow": shallowCNN,
+    "enet": ENet,
+    "vit": ViTSegmenter,
+}
+
 datasets_params: dict[str, dict[str, Any]] = {}
 # K for the number of classes
 # Avoids the classes with C (often used for the number of Channel)
-datasets_params["TOY2"] = {'K': 2, 'net': shallowCNN, 'B': 2, 'kernels': 8, 'factor': 2}
-datasets_params["SEGTHOR"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
-datasets_params["SEGTHOR_CLEAN"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
+datasets_params["TOY2"] = {
+    'K': 2,
+    'default_arch': 'shallow',
+    'B': 2,
+    'kernels': 8,
+    'factor': 2,
+}
+datasets_params["SEGTHOR"] = {
+    'K': 5,
+    'default_arch': 'enet',
+    'B': 8,
+    'B_vit': 4,
+    'kernels': 8,
+    'factor': 2,
+}
+datasets_params["SEGTHOR_CLEAN"] = {
+    'K': 5,
+    'default_arch': 'enet',
+    'B': 8,
+    'B_vit': 4,
+    'kernels': 8,
+    'factor': 2,
+}
 
 def img_transform(img):
         img = img.convert('L')
@@ -83,18 +110,26 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     device = torch.device("cuda") if gpu else torch.device("cpu")
     print(f">> Picked {device} to run experiments")
 
-    K: int = datasets_params[args.dataset]['K']
-    kernels: int = datasets_params[args.dataset]['kernels'] if 'kernels' in datasets_params[args.dataset] else 8
-    factor: int = datasets_params[args.dataset]['factor'] if 'factor' in datasets_params[args.dataset] else 2
-    net = datasets_params[args.dataset]['net'](1, K, kernels=kernels, factor=factor)
+    dataset_conf = datasets_params[args.dataset]
+    K: int = dataset_conf['K']
+    kernels: int = dataset_conf['kernels'] if 'kernels' in dataset_conf else 8
+    factor: int = dataset_conf['factor'] if 'factor' in dataset_conf else 2
+
+    net_cls = architectures[args.arch]
+    net = net_cls(1, K, kernels=kernels, factor=factor)
     net.init_weights()
     net.to(device)
 
-    lr = 0.0005
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
+    if args.arch == "vit":
+        lr = 1e-4
+        optimizer = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.999), weight_decay=0.01)
+    else:
+        lr = 5e-4
+        optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
 
     # Dataset part
-    B: int = datasets_params[args.dataset]['B']
+    batch_key = 'B_vit' if args.arch == "vit" and 'B_vit' in dataset_conf else 'B'
+    B: int = dataset_conf[batch_key]
     root_dir = Path("data") / args.dataset
 
 
@@ -125,7 +160,7 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
 
 
 def runTraining(args):
-    print(f">>> Setting up to train on {args.dataset} with {args.mode}")
+    print(f">>> Setting up to train on {args.dataset} with {args.mode} using {args.arch}")
     net, optimizer, device, train_loader, val_loader, K = setup(args)
 
     if args.mode == "full":
@@ -246,7 +281,13 @@ def main():
                         help="Keep only a fraction (10 samples) of the datasets, "
                              "to test the logics around epochs and logging easily.")
 
+    parser.add_argument('--arch', default=None, choices=architectures.keys(),
+                        help="Backbone to use for segmentation")
+
     args = parser.parse_args()
+
+    if args.arch is None:
+        args.arch = datasets_params[args.dataset].get('default_arch', 'enet')
 
     pprint(args)
 

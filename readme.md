@@ -28,6 +28,31 @@ Summary of codebase (in PyTorch)
 
 **Some recurrent questions might be addressed here directly.** As such, it is expected that small change or additions to this readme to be made.
 
+### Vision Transformer backbone (ViTSegmenter)
+We added a `ViTSegmenter` architecture that keeps a *pure transformer encoder* paired with a lightweight convolutional upsampler—no UNet-style skip connections—yet remains competitive for thoracic CT slices. Key design points:
+
+* **ViT-B/16 core.** Embedding size 768, depth 12, and 12 heads with GELU activations match the strongest open-weight ViT variant reported for medical segmentation benchmarks.
+* **Patch embedding with reflection padding.** A stride-16 patch tokenizer preserves native resolution while coping with arbitrary slice sizes.
+* **Sinusoidal 2D positional encoding.** Keeps spatial awareness without adding learnable parameters that overfit smaller datasets.
+* **Progressive transposed-convolution decoder.** Four stages recover full resolution, each followed by normalization + GELU. This supplies sharper organ boundaries than direct patch reshaping but avoids banned UNet skip paths.
+* **Regularisation tuned for CT.** Dropout 0.1 on token embeddings and decoder stages mitigates overfitting on the modest SegTHOR split.
+* **Optimiser defaults.** `AdamW` with LR $1\times10^{-4}$, betas $(0.9, 0.999)$, and weight decay $0.01$ is automatically activated for `--arch vit`, matching best practices for ViTs.
+
+Recommended training recipe for SegTHOR:
+
+* `--arch vit` (defaults to `enet` otherwise)
+* Batch size automatically reduced to 4 to fit the transformer on 12–16 GB GPUs
+* 100–150 epochs with cosine or step LR decay (optional) typically reach the best Dice; early stopping by validation DSC still works thanks to frequent checkpoints
+* Stick with `--mode full`; partial supervision degrades transformer convergence in practice
+
+Run it with for example:
+
+```bash
+python main.py --dataset SEGTHOR --arch vit --mode full --epochs 120 --dest results/segthor_vit --gpu
+```
+
+Metrics and visualisations remain unchanged, so the existing tooling continues to work.
+
 ## Codebase use
 In the following, a line starting by `$` usually means it is meant to be typed in the terminal (bash, zsh, fish, ...), whereas no symbol might indicate some python code.
 
