@@ -51,10 +51,10 @@ from utils import (Dcm,
                    save_images)
 
 from losses import (CrossEntropy)
+from augmentations import get_augmentations
 
-
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+# import albumentations as A
+# from albumentations.pytorch import ToTensorV2
 
 
 datasets_params: dict[str, dict[str, Any]] = {}
@@ -64,12 +64,8 @@ datasets_params["TOY2"] = {'K': 2, 'net': shallowCNN, 'B': 2, 'kernels': 8, 'fac
 datasets_params["SEGTHOR"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
 datasets_params["SEGTHOR_CLEAN"] = {'K': 5, 'net': ENet, 'B': 8, 'kernels': 8, 'factor': 2}
 
-augmentations = A.Compose([
-    A.ShiftScaleRotate(shift_limit = 0.05,rotate_limit = 10, p = 0.5, fit_output = False),
-    A.GaussNoise(p=0.1),
-    A.RandomBrightnessContrast(p=0.25),
-], is_check_shapes = False)
 
+# augmentations = None
 
 def img_transform(img):
         img = img.convert('L')
@@ -117,7 +113,10 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     B: int = datasets_params[args.dataset]['B']
     root_dir = Path("data") / args.dataset
 
-
+    if args.augment:
+        augmentations = get_augmentations()
+    else:
+        augmentations = None
 
     train_set = SliceDataset('train',
                              root_dir,
@@ -268,7 +267,7 @@ def main():
     parser.add_argument('--debug', action='store_true',
                         help="Keep only a fraction (10 samples) of the datasets, "
                              "to test the logics around epochs and logging easily.")
-
+    parser.add_argument('--augment', action='store_true')
     args = parser.parse_args()
 
     pprint(args)
