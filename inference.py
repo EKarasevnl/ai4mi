@@ -172,13 +172,13 @@ def main():
     # Default arguments are the ones used for the final model
     parser.add_argument('--img_size', default=512, type=int,
                        help='Input image size for TransUNet')
-    parser.add_argument('--patch_size', default=16, type=int,
+    parser.add_argument('--patch_size', default=8, type=int,
                        help='Patch size for Vision Transformer')
-    parser.add_argument('--embed_dim', default=768, type=int,
+    parser.add_argument('--embed_dim', default=1024, type=int,
                        help='Embedding dimension for Vision Transformer')
     parser.add_argument('--depth', default=12, type=int,
                        help='Number of transformer blocks')
-    parser.add_argument('--num_heads', default=12, type=int,
+    parser.add_argument('--num_heads', default=16, type=int,
                        help='Number of attention heads')
     
     
