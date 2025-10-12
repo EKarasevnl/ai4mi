@@ -38,6 +38,7 @@ from skimage.io import imsave
 from skimage.transform import resize
 
 from utils import map_, tqdm_
+from scipy.ndimage import label, binary_fill_holes
 
 
 stats = {}
@@ -77,6 +78,24 @@ def sanity_ct(ct, x, y, z, dx, dy, dz) -> bool:
 
     return True
 
+
+def remove_table(ct: np.ndarray, air_threshold: int = -500):
+
+    mask = ct > air_threshold
+
+    mask_filled = binary_fill_holes(mask)
+
+    labeled, num = label(mask_filled)
+    if num == 0:
+        return ct 
+
+    sizes = np.bincount(labeled.ravel())
+    largest_label = sizes[1:].argmax() + 1
+    patient_mask = (labeled == largest_label)
+
+    ct_clean = np.where(patient_mask, ct, -1000)
+
+    return ct_clean
 
 def compute_global_statistics(train_ids: list[str], source_path: Path):
     intensity_values = []
@@ -150,6 +169,7 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     nib.save(nib_obj, resampled_save_dir / f"{id_}.nii.gz")
 
     ct: np.ndarray = np.asarray(nib_obj.dataobj)
+    ct = remove_table(ct)
     # dx, dy, dz = nib_obj.header.get_zooms()
     x, y, z = ct.shape
     dx, dy, dz = nib_obj.header.get_zooms()
