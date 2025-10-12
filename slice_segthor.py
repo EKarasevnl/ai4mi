@@ -169,7 +169,8 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     nib.save(nib_obj, resampled_save_dir / f"{id_}.nii.gz")
 
     ct: np.ndarray = np.asarray(nib_obj.dataobj)
-    ct = remove_table(ct)
+    #Very Naive approach
+    #ct = remove_table(ct)
     # dx, dy, dz = nib_obj.header.get_zooms()
     x, y, z = ct.shape
     dx, dy, dz = nib_obj.header.get_zooms()
