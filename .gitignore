@@ -214,3 +214,6 @@ ai4mi/
 __pycache__/
 
 projects
+
+jobs/
+data/
