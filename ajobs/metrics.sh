@@ -28,7 +28,7 @@ source ai4mi/bin/activate
 
 python compute_metrics.py \
   --ref_folder ref \
-  --pred_folder runs/segthor_2p5d_e50_c2_w3/best_epoch/val_stitched \
+  --pred_folder runs/segthor_2p5d_e50_c2_k16_a-m_lr_0d00025_w3_dec_1e-4_cd_0d2/best_epoch/val_stitched \
   --ref_extension .nii.gz \
   --pred_extension .nii.gz \
   -C 5 \

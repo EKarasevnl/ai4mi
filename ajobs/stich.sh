@@ -17,4 +17,4 @@ module load Python/3.11.3-GCCcore-12.3.0
 
 source ai4mi/bin/activate
 
-python stitch.py --data_folder runs/segthor_2p5d_e50_c2_w3/best_epoch/val --dest_folder runs/segthor_2p5d_e50_c2_w3/best_epoch/val_stitched --num_classes 5 --grp_regex "(Patient_\d\d)_\d\d\d\d" --source_scan_pattern "data/segthor_train/train/{id_}/GT.nii.gz"
+python stitch.py --data_folder runs/segthor_2p5d_e50_c2_w3/best_epoch/val --dest_folder runs/segthor_2p5d_e50_c2_k16_a-m_lr_0d00025_w3_dec_1e-4_cd_0d2/best_epoch/val_stitched --num_classes 5 --grp_regex "(Patient_\d\d)_\d\d\d\d" --source_scan_pattern "data/segthor_train/train/{id_}/GT.nii.gz"
