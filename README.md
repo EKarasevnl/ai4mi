@@ -34,7 +34,7 @@ $ python  slice_segthor.py --source_dir data --dest_dir data/SEGTHOR_test --shap
 
 * To slice the files with preprocessing, run slicing with slice_segthor_preproc.py, and use resampled NIfTI files for stiching.
 * To train with data augmentation use ```--augment``` when running main.py
-* To run the code with different loss funcitons, use the ``` --mode "$loss"``` when runnign main.py
+* To run the code with different loss funcitons, use the ``` --mode "$loss"``` when running main.py
 ```
 $ python -O main.py --dataset SEGTHOR_CLEAN \
  --mode full \
