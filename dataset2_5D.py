@@ -54,8 +54,9 @@ def make_dataset(root, subset) -> list[tuple[Path, Path | None]]:
 class SliceDataset(Dataset):
     def __init__(self, subset, root_dir, img_transform=None,
                  gt_transform=None, augment=False, equalize=False, debug=False,
-                 context_slices: int = 0):
+                 context_slices: int = 0, slice_dropout_prob: float = 0.0):
         assert context_slices >= 0, context_slices
+        assert 0.0 <= slice_dropout_prob <= 1.0, slice_dropout_prob
 
         self.root_dir: str = root_dir
         self.img_transform: Callable = img_transform
@@ -63,6 +64,7 @@ class SliceDataset(Dataset):
         self.augmentation: bool = augment
         self.equalize: bool = equalize
         self.context_slices: int = context_slices
+        self.slice_dropout_prob: float = slice_dropout_prob
 
         self.test_mode: bool = subset == 'test'
 
@@ -107,10 +109,15 @@ class SliceDataset(Dataset):
         if self.context_slices and self._neighbors is not None:
             slice_indices = self._neighbors[index]
             slices: list[Tensor] = []
-            for neighbor_idx in slice_indices:
+            radius: int = self.context_slices
+            for pos, neighbor_idx in enumerate(slice_indices):
                 neighbor_img_path, _ = self.files[neighbor_idx]
                 with Image.open(neighbor_img_path) as pil_img:
-                    slices.append(self.img_transform(pil_img))
+                    tensor = self.img_transform(pil_img)
+                if self.slice_dropout_prob and pos != radius:
+                    if torch.rand(1).item() < self.slice_dropout_prob:
+                        tensor = torch.zeros_like(tensor)
+                slices.append(tensor)
             if slices:
                 img = torch.cat(slices, dim=0)
             else:
