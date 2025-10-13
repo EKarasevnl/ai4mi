@@ -2,9 +2,9 @@
 
 ## Project overview
 
-This project focuses on automated segmentation of thoracic organs using the SegTHOR dataset, which contains CT scans from patients with lung cancer or Hodgkin’s lymphoma. The goal is to accurately identify and segment four key Organs at Risk (OARs) (the Esophagus, Heart, Trachea, and Aorta) to support radiation therapy planning. By leveraging deep learning models such as TransUNet, this work aims to improve segmentation performance on a baseline ENet, for the broader goal of streamlining the therapy planning process.
+This project focuses on automated segmentation of thoracic organs using the SegTHOR [[1]](#1). dataset, which contains CT scans from patients with lung cancer or Hodgkin’s lymphoma. The goal is to accurately identify and segment four key Organs at Risk (OARs) (the Esophagus, Heart, Trachea, and Aorta) to support radiation therapy planning. By leveraging deep learning models such as TransUNet, this work aims to improve segmentation performance on a baseline ENet, for the broader goal of streamlining the therapy planning process.
 
-Code base use
+The use of the codebase is described below...
 ```
 $ git clone https://github.com/EKarasevnl/ai4mi
 $ cd ai4mi_project
@@ -56,3 +56,14 @@ Compute Additional Metrics with
 $ python compute_metrics.py --ref_folder "path_to_folder" --pred_folder "path_to_folder" --ref_extension ".nii.gz"\
     --pred_extension ".nii.gz" --metrics "3d_dice" "3d_hd95" "$other_metrics" -C 5 --background_class 0 --save_folder "val" --overwrite
 ```
+
+
+
+## References
+<a id="1">[1]</a> 
+Lambert, Z., Petitjean, C., Dubray, B., & Ruan, S. (2019). SegTHOR: Segmentation of Thoracic Organs at Risk in CT images. arXiv 
+
+<a id="2">[2]</a> 
+Chen et al. (2021), TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
+
+
