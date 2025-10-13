@@ -23,8 +23,6 @@ def get_augmentations(shift_scale_rotate = True,
     
     if shift_scale_rotate:
         augmentations.append(A.ShiftScaleRotate(shift_limit=shift, scale_limit=scale, rotate_limit=rotate, p=ssr_p))
-    if gauss_noise:
-        augmentations.append(A.GaussNoise(p=gauss_p))
     if random_brightness_contrast:
         augmentations.append(A.RandomBrightnessContrast(p=bright_contrast_p))
     if random_crop:
