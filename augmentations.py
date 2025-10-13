@@ -1,7 +1,6 @@
 import albumentations as A
 
 def get_augmentations(shift_scale_rotate = True,
-                    gauss_noise = True,
                     random_brightness_contrast = True,
                     random_crop = True,
                     clahe = True,
@@ -13,7 +12,6 @@ def get_augmentations(shift_scale_rotate = True,
                     clahe_clip = 2.0,
                     clahe_grid = (8, 8),
                     ssr_p = 0.5,
-                    gauss_p = 0.2,
                     bright_contrast_p = 0.2,
                     crop_p = 0.5,
                     clahe_p = 0.25
