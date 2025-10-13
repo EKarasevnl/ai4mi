@@ -42,6 +42,8 @@ from functools import partial
 from dataset import SliceDataset
 from ShallowNet import shallowCNN
 from ENet import ENet
+from TransUNet import TransUNet
+
 from utils import (Dcm,
                    class2one_hot,
                    probs2one_hot,
@@ -52,9 +54,7 @@ from utils import (Dcm,
 
 from losses import (CrossEntropy)
 from augmentations import get_augmentations
-
-# import albumentations as A
-# from albumentations.pytorch import ToTensorV2
+import torch_optimizer as optim
 
 
 datasets_params: dict[str, dict[str, Any]] = {}
@@ -100,14 +100,43 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     print(f">> Picked {device} to run experiments")
 
     K: int = datasets_params[args.dataset]['K']
-    kernels: int = datasets_params[args.dataset]['kernels'] if 'kernels' in datasets_params[args.dataset] else 8
-    factor: int = datasets_params[args.dataset]['factor'] if 'factor' in datasets_params[args.dataset] else 2
-    net = datasets_params[args.dataset]['net'](1, K, kernels=kernels, factor=factor)
+    
+    # Select backbone architecture
+    if args.backbone == 'ENet':
+        kernels: int = datasets_params[args.dataset]['kernels'] if 'kernels' in datasets_params[args.dataset] else 8
+        factor: int = datasets_params[args.dataset]['factor'] if 'factor' in datasets_params[args.dataset] else 2
+        net = ENet(1, K, kernels=kernels, factor=factor)
+    elif args.backbone == 'TransUNet':
+        # TransUNet specific parameters
+        img_size = getattr(args, 'img_size', 224)
+        patch_size = getattr(args, 'patch_size', 16)
+        embed_dim = getattr(args, 'embed_dim', 768)
+        depth = getattr(args, 'depth', 12)
+        num_heads = getattr(args, 'num_heads', 12)
+        net = TransUNet(1, K, img_size=img_size, patch_size=patch_size, 
+                       embed_dim=embed_dim, depth=depth, num_heads=num_heads)
+    else:
+        # Fallback to dataset default
+        kernels: int = datasets_params[args.dataset]['kernels'] if 'kernels' in datasets_params[args.dataset] else 8
+        factor: int = datasets_params[args.dataset]['factor'] if 'factor' in datasets_params[args.dataset] else 2
+        net = datasets_params[args.dataset]['net'](1, K, kernels=kernels, factor=factor)
+    
     net.init_weights()
     net.to(device)
 
-    lr = 0.0005
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr, betas=(0.9, 0.999))
+
+    if args.optimizer == 'ranger':
+        optimizer = optim.Ranger(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    
+    elif args.optimizer in ['sgd', 'nesterov-sgd']:
+        nesterov = args.optimizer == 'nesterov-sgd'
+        optimizer = torch.optim.SGD(net.parameters(), lr=args.lr, 
+                    momentum=args.momentum, 
+                    nesterov=nesterov,
+                    weight_decay=args.weight_decay)
+
+    else:
+        optimizer = torch.optim.Adam(net.parameters(), lr=args.lr, betas=(0.9, 0.999))
 
     # Dataset part
     B: int = datasets_params[args.dataset]['B']
@@ -144,7 +173,6 @@ def setup(args) -> tuple[nn.Module, Any, Any, DataLoader, DataLoader, int]:
     args.dest.mkdir(parents=True, exist_ok=True)
 
     return (net, optimizer, device, train_loader, val_loader, K)
-
 
 def runTraining(args):
     print(f">>> Setting up to train on {args.dataset} with {args.mode}")
@@ -262,11 +290,27 @@ def main():
     parser.add_argument('--mode', default='full', choices=['partial', 'full'])
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
+    parser.add_argument('--backbone', default='ENet', choices=['ENet', 'TransUNet'])
 
+    parser.add_argument('--lr', default=0.001, type=float)
+    parser.add_argument('--weight_decay', default=0.001, type=float)
+    parser.add_argument('--optimizer', default='adam', choices=['adam', 'ranger'])
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help="Keep only a fraction (10 samples) of the datasets, "
                              "to test the logics around epochs and logging easily.")
+    
+    # TransUNet specific arguments
+    parser.add_argument('--img_size', default=512, type=int,
+                        help='Input image size for TransUNet')
+    parser.add_argument('--patch_size', default=8, type=int,
+                        help='Patch size for Vision Transformer')
+    parser.add_argument('--embed_dim', default=1024, type=int,
+                        help='Embedding dimension for Vision Transformer')
+    parser.add_argument('--depth', default=12, type=int,
+                        help='Number of transformer blocks')
+    parser.add_argument('--num_heads', default=16, type=int,
+                        help='Number of attention heads')
     parser.add_argument('--augment', action='store_true')
     args = parser.parse_args()
 
