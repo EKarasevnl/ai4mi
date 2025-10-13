@@ -24,7 +24,8 @@
 
 
 from torch import einsum
-
+import torch
+import torch.nn.functional as F
 from utils import simplex, sset
 
 
@@ -51,3 +52,100 @@ class CrossEntropy():
 class PartialCrossEntropy(CrossEntropy):
     def __init__(self, **kwargs):
         super().__init__(idk=[1], **kwargs)
+
+
+class DiceLoss():
+    def __init__(self, smooth=1e-10, idk=None):
+        self.smooth = smooth
+        self.idk = idk
+        print(f"Initialized {self.__class__.__name__} with idk={idk}")
+
+    def __call__(self, pred_softmax, weak_target):
+        assert pred_softmax.shape == weak_target.shape
+        assert simplex(pred_softmax)
+        assert sset(weak_target, [0, 1])
+        assert len(self.idk) > 0
+
+        weak_target = weak_target.float()
+
+        dice_losses = []
+        for c in self.idk:
+            p = pred_softmax[:, c, ...]
+            t = weak_target[:, c, ...]
+            # elementwise multiply pred and target, sum over batch and dims
+            intersect = einsum("b... , b... ->", p, t)
+            union = p.sum() + t.sum()
+            dice_score = (2 * intersect + self.smooth) / (union + self.smooth)
+            dice_losses.append(1 - dice_score)
+
+        return sum(dice_losses) / len(dice_losses)
+
+
+class Hausdorff2DLoss:
+    def __init__(self, idk=None, beta=2.0, eps=1e-10):
+        self.idk = idk
+        self.beta = beta
+        self.eps = eps
+
+    def _soft_distance_map(self, mask):
+        dm = 1 - mask
+        for _ in range(4):
+            dm = F.max_pool2d(dm, kernel_size=3, stride=1, padding=1)
+        return dm
+
+    def __call__(self, pred_softmax, target):
+        _, C, _, _ = pred_softmax.shape
+        target = target.float()
+
+        classes = self.idk if self.idk is not None else list(range(C))
+        loss_per_class = []
+
+        for c in classes:
+            p = pred_softmax[:, c:c+1, ...]
+            t = target[:, c:c+1, ...]
+
+            dt_fore = self._soft_distance_map(t)
+            dt_back = self._soft_distance_map(1 - t)
+
+            hd = (p * dt_fore + (1 - p) * dt_back).mean()
+            loss_per_class.append(hd)
+
+        return torch.stack(loss_per_class).mean()
+
+
+class DiceHDLoss:
+    def __init__(self, idk=None, alpha=0.5):
+        self.dice_loss = DiceLoss(idk=idk)
+        self.hd_loss = Hausdorff2DLoss(idk=idk)
+        self.alpha = alpha
+
+    def __call__(self, pred_softmax, target):
+        dice = self.dice_loss(pred_softmax, target)
+        hd = self.hd_loss(pred_softmax, target)
+        return self.alpha * dice + (1 - self.alpha) * hd
+    
+
+class DiceCELoss:
+    def __init__(self, idk=None, alpha=0.5):
+        self.dice_loss = DiceLoss(idk=idk)
+        self.ce_loss = CrossEntropy(idk=idk)
+        self.alpha = alpha
+
+    def __call__(self, pred_softmax, target):
+        dice = self.dice_loss(pred_softmax, target)
+        ce = self.ce_loss(pred_softmax, target)
+        return self.alpha * dice + (1 - self.alpha) * ce
+    
+
+class CombinedLoss:
+    def __init__(self, idk=None, alpha=1/3):
+        self.dice_loss = DiceLoss(idk=idk)
+        self.hd_loss = Hausdorff2DLoss(idk=idk)
+        self.ce_loss = CrossEntropy(idk=idk)
+        self.alpha = alpha
+
+    def __call__(self, pred_softmax, target):
+        dice = self.dice_loss(pred_softmax, target)
+        hd = self.hd_loss(pred_softmax, target)
+        ce = self.ce_loss(pred_softmax, target)
+        return self.alpha * dice + self.alpha * hd + self.alpha * ce

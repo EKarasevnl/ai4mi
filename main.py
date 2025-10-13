@@ -53,6 +53,11 @@ from utils import (Dcm,
                    save_images)
 
 from losses import (CrossEntropy)
+from losses import (DiceLoss)
+from losses import (Hausdorff2DLoss)
+from losses import (DiceHDLoss)
+from losses import (DiceCELoss)
+from losses import (CombinedLoss)
 import torch_optimizer as optim
 
 
@@ -160,6 +165,16 @@ def runTraining(args):
         loss_fn = CrossEntropy(idk=list(range(K)))  # Supervise both background and foreground
     elif args.mode in ["partial"] and args.dataset == 'SEGTHOR':
         loss_fn = CrossEntropy(idk=[0, 1, 3, 4])  # Do not supervise the heart (class 2)
+    elif args.mode in ["dice"] and args.dataset == 'SEGTHOR_CLEAN':
+        loss_fn = DiceLoss(idk=[0, 1, 2, 3, 4])
+    elif args.mode in ["hd"] and args.dataset == 'SEGTHOR_CLEAN':
+        loss_fn = Hausdorff2DLoss(idk=[0, 1, 2, 3, 4])
+    elif args.mode in ["dicehd"] and args.dataset == 'SEGTHOR_CLEAN':
+        loss_fn = DiceHDLoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
+    elif args.mode in ["dicece"] and args.dataset == 'SEGTHOR_CLEAN':
+        loss_fn = DiceCELoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
+    elif args.mode in ["comp"] and args.dataset == 'SEGTHOR_CLEAN':  # Just to compare with the paper
+        loss_fn = CombinedLoss(idk=[0, 1, 2, 3, 4], alpha=0.5)
     else:
         raise ValueError(args.mode, args.dataset)
 
@@ -265,7 +280,7 @@ def main():
 
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--dataset', default='TOY2', choices=datasets_params.keys())
-    parser.add_argument('--mode', default='full', choices=['partial', 'full'])
+    parser.add_argument('--mode', default='full', choices=['partial', 'full', 'dice', 'hd', 'dicehd', 'dicece', 'comp'])
     parser.add_argument('--dest', type=Path, required=True,
                         help="Destination directory to save the results (predictions and weights).")
     parser.add_argument('--backbone', default='ENet', choices=['ENet', 'TransUNet'])
