@@ -33,20 +33,30 @@ from typing import Callable
 
 import numpy as np
 import nibabel as nib
+from nibabel.processing import resample_to_output
 from skimage.io import imsave
 from skimage.transform import resize
 
 from utils import map_, tqdm_
+from scipy.ndimage import label, binary_fill_holes
 
 
-def norm_arr(img: np.ndarray) -> np.ndarray:
-    casted = img.astype(np.float32)
-    shifted = casted - casted.min()
-    norm = shifted / shifted.max()
-    res = 255 * norm
+stats = {}
+TAR_RES = (0.98, 0.98, 2.5)
 
-    assert 0 == res.min(), res.min()
-    assert res.max() == 255, res.max()
+def norm_arr(img: np.ndarray, z_clip: int, stats: dict) -> np.ndarray:
+    # casted = img.astype(np.float32)
+    # shifted = casted - casted.min()
+    # norm = shifted / shifted.max()
+    # res = 255 * norm
+
+    img = np.clip(img, stats["clip_min"], stats["clip_max"]).astype(np.float32)
+    img_z = (img - stats["mean"]) / (stats["std"] + 1e-8)
+    img_z = np.clip(img_z, -z_clip, z_clip)
+    res = 255.0 * (img_z + z_clip) / (2.0 * z_clip)
+
+    assert 0 <= res.min(), res.min()
+    assert res.max() <= 255, res.max()
 
     return res.astype(np.uint8)
 
@@ -57,14 +67,76 @@ def sanity_ct(ct, x, y, z, dx, dy, dz) -> bool:
     assert ct.max() <= 31743, ct.max()
 
     assert 0.896 <= dx <= 1.37, dx  # Rounding error
-    assert dx == dy
-    assert 2 <= dz <= 3.7, dz
+    assert dx == dy == 0.98
+    assert 1.2 <= dz <= 3.7, dz
 
-    assert (x, y) == (512, 512)
+    #after resampling this may not be true
+    #assert (x, y) == (512, 512)
     assert x == y
-    assert 135 <= z <= 284, z
+    # This also may not be true
+    #assert 135 <= z <= 284, z
 
     return True
+
+
+def remove_table(ct: np.ndarray, air_threshold: int = -500):
+
+    mask = ct > air_threshold
+
+    mask_filled = binary_fill_holes(mask)
+
+    labeled, num = label(mask_filled)
+    if num == 0:
+        return ct 
+
+    sizes = np.bincount(labeled.ravel())
+    largest_label = sizes[1:].argmax() + 1
+    patient_mask = (labeled == largest_label)
+
+    ct_clean = np.where(patient_mask, ct, -1000)
+
+    return ct_clean
+
+def compute_global_statistics(train_ids: list[str], source_path: Path):
+    intensity_values = []
+    
+    print(len(train_ids))
+    for id_ in tqdm_(train_ids):
+        id_path: Path = source_path / "train" / id_
+        ct_path: Path = id_path / f"{id_}.nii.gz"
+        gt_path: Path = id_path / "GT.nii.gz"
+
+        ct_nib = nib.load(str(ct_path))
+        gt_nib = nib.load(str(gt_path))
+            
+        ct_data = ct_nib.get_fdata()
+        gt_data = gt_nib.get_fdata().astype(bool)
+            
+        foreground_intensities = ct_data[gt_data]
+        intensity_values.append(foreground_intensities)
+
+    all_intensities = np.concatenate(intensity_values)
+    
+    p0_5 = np.percentile(all_intensities, 0.5)
+    p99_5 = np.percentile(all_intensities, 99.5)
+    clipped_intensities = np.clip(all_intensities, p0_5, p99_5)
+    mean_val = np.mean(clipped_intensities)
+    std_val = np.std(clipped_intensities)
+
+
+    stats = {
+        "mean": mean_val,
+        "std": std_val,
+        "clip_min": p0_5,
+        "clip_max": p99_5
+    }
+    
+    print(f"Global Mean: {stats['mean']:.2f}")
+    print(f"Global Std Dev: {stats['std']:.2f}")
+    print(f"Global 0.5 Percentile (Clip Min): {stats['clip_min']:.2f}")
+    print(f"Global 99.5 Percentile (Clip Max): {stats['clip_max']:.2f}\n")
+    
+    return stats
 
 
 def sanity_gt(gt, ct) -> bool:
@@ -81,12 +153,24 @@ resize_: Callable = partial(resize, mode="constant", preserve_range=True, anti_a
 
 
 def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int, int],
-                  test_mode: bool = False) -> tuple[float, float, float]:
+                  stats: dict, test_mode: bool = False) -> tuple[float, float, float]:
     id_path: Path = source_path / ("train" if not test_mode else "test") / id_
 
     ct_path: Path = (id_path / f"{id_}.nii.gz") if not test_mode else (source_path / "test" / f"{id_}.nii.gz")
-    nib_obj = nib.load(str(ct_path))
+    nib_obj_pre = nib.load(str(ct_path))
+
+    data_folder = "train" if not test_mode else "test"
+    resampled_save_dir = source_path / f"{data_folder}_resampled" / id_
+    resampled_save_dir.mkdir(parents=True, exist_ok=True)
+
+    #most of them are already (0.98, 0.98, 2.5)
+    nib_obj = resample_to_output(nib_obj_pre, voxel_sizes=TAR_RES, order=1)
+
+    nib.save(nib_obj, resampled_save_dir / f"{id_}.nii.gz")
+
     ct: np.ndarray = np.asarray(nib_obj.dataobj)
+    #Very Naive approach
+    #ct = remove_table(ct)
     # dx, dy, dz = nib_obj.header.get_zooms()
     x, y, z = ct.shape
     dx, dy, dz = nib_obj.header.get_zooms()
@@ -96,14 +180,16 @@ def slice_patient(id_: str, dest_path: Path, source_path: Path, shape: tuple[int
     gt: np.ndarray
     if not test_mode:
         gt_path: Path = id_path / "GT.nii.gz"
-        gt_nib = nib.load(str(gt_path))
+        gt_nib_pre = nib.load(str(gt_path))
+        gt_nib = resample_to_output(gt_nib_pre, voxel_sizes=TAR_RES, order=0)
+        nib.save(gt_nib, resampled_save_dir / "GT.nii.gz")
         # print(nib_obj.affine, gt_nib.affine)
         gt = np.asarray(gt_nib.dataobj)
         assert sanity_gt(gt, ct)
     else:
         gt = np.zeros_like(ct, dtype=np.uint8)
 
-    norm_ct: np.ndarray = norm_arr(ct)
+    norm_ct: np.ndarray = norm_arr(ct, z_clip = 3.0 , stats=stats)
 
     to_slice_ct = norm_ct
     to_slice_gt = gt
@@ -168,6 +254,7 @@ def main(args: argparse.Namespace):
     validation_ids: list[str]
     test_ids: list[str]
     training_ids, validation_ids, test_ids = get_splits(src_path, args.retains, args.fold)
+    stats = compute_global_statistics(training_ids, src_path)
 
     resolution_dict: dict[str, tuple[float, float, float]] = {}
 
@@ -180,6 +267,7 @@ def main(args: argparse.Namespace):
                                  dest_path=dest_mode,
                                  source_path=src_path,
                                  shape=tuple(args.shape),
+                                 stats = stats,
                                  test_mode=mode == 'test')
         resolutions: list[tuple[float, float, float]]
         iterator = tqdm_(split_ids)
